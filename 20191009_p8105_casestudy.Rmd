@@ -1,0 +1,99 @@
+---
+title: "20191008_p8105_casestudy_datawrang2"
+author: "Kevin S.W."
+date: "10/8/2019"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+```
+
+# Practicing a Data Scientist mindset
+
+```{r}
+
+library(tidyverse)
+library(dplyr)
+library(p8105.datasets)
+library(leaflet)
+
+data(nyc_airbnb)
+
+```
+
+This dataset of nyc_airbnb is started by someone who is interested in seeing how airbnb contributes to gentrification.
+
+Some questions to consider:
+* Does rating correlate with location?
+* How is price related to location?
+* How airbnb prices relate to rent in neighborhood
+* Which neighborhood is most expensive, etc
+* do hosts with multiple sites have higher price/ratings?
+* Does price have any relation to ratings?
+* average length of stay related to neighborhood? price? etc?
+
+```{r}
+
+test_data <- nyc_airbnb %>% 
+  drop_na(review_scores_location) %>% 
+  select(review_scores_location, neighbourhood_group, neighbourhood, review_scores_location, price, room_type) %>%
+  mutate(
+    room_type = as.factor(room_type)
+  ) %>% 
+  group_by(review_scores_location) %>% 
+  ggplot(aes(x = review_scores_location, y = price, color = room_type)) +
+  geom_point(alpha = 0.4, aes(size = price)) +
+  facet_grid(room_type~neighbourhood_group)
+
+```
+
+
+# considering spatial locations
+
+```{r}
+
+#rentals located
+nyc_airbnb %>%
+ ggplot(aes(x = lat, y = long, color = neighbourhood_group)) +
+ geom_point()
+
+```
+
+# Using leaflets
+
+```{r}
+
+pal <- colorNumeric(
+  palette = "viridis",
+  domain = nyc_airbnb$review_scores_location
+)
+
+airbnb_map <- nyc_airbnb %>%
+  filter(neighbourhood_group == "Manhattan") %>% 
+  mutate(
+    label = str_c("<b>Stars: ", neighbourhood_group, "</b><br>Price: ", price)
+  ) %>% 
+  sample_n(2000) %>% # instead of trying to pull x > y, just sample x amount from the data
+  leaflet() %>%     # here's the map
+  addTiles() %>%    # adding tiles -> here's my map
+  #addMarkers(~ lat, ~ long) %>%   # adding markers based on lat/long
+  addProviderTiles(providers$CartoDB.Positron) %>% # changing the base map (tile)
+  addCircleMarkers(~lat, ~long, 
+                   radius = 1, 
+                   color = pal(nyc_airbnb$review_scores_location), 
+                   popup = ~ label) # modifying the markers
+
+```
+
