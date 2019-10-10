@@ -96,4 +96,3 @@ airbnb_map <- nyc_airbnb %>%
                    popup = ~ label) # modifying the markers
 
 ```
-
