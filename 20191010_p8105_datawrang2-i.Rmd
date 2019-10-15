@@ -12,4 +12,355 @@ library(tidyverse)
 library(rvest)
 library(httr)
 
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
 ```
+
+# Part 1
+
+Let's try scraping... from the NDSUH data
+
+```{r scraping_practice}
+
+url = "http://samhda.s3-us-gov-west-1.amazonaws.com/s3fs-public/field-uploads/2k15StateFiles/NSDUHsaeShortTermCHG2015.htm"
+
+# first read in the html
+drug_use_xml <- read_html(url) # but this is usually unreadable
+  # then we start pulling the relevant info. If we check this, we can see that it looks promising as the web does have ~15 tables.
+(drug_use_xml %>% html_nodes(css = "table")) %>% # we use css = "tag" to turn elements with the tag into lists
+  .[[1]] %>%  # this is a neat way to "pipe" and interact with list; essentially saying pick list x from y list
+  html_table() %>% # then we try to turn it into a table. but now in this case, we see that even the footnote is included.
+  slice(-1) %>%  # "filter" but based on row numbers
+  as_tibble()
+
+```
+
+The case above is typically nicely formatted. But what if it's not?
+
+## Data Wrangling from sites not intended for data extraction
+Here we try to use selector gadget to obtain the css tags...
+
+```{r}
+
+hpsaga_html <- read_html("https://www.imdb.com/list/ls000630791/")
+
+hp_movie_names <- hpsaga_html %>% 
+  html_nodes(css = ".lister-item-header a") %>% 
+  html_text()
+
+hp_runtime <- hpsaga_html %>% 
+  html_nodes(css = ".runtime") %>% 
+  html_text()
+
+hp_money <- hpsaga_html %>% 
+  html_nodes(css = ".text-small:nth-child(7) span:nth-child(5)") %>% 
+  html_text()
+
+hp_df <- tibble(
+  title = hp_movie_names,
+  runtime = hp_runtime,
+  money = hp_money
+)
+
+```
+
+## Let's try to get reviews from amazon
+
+```{r}
+
+url = "https://www.amazon.com/product-reviews/B00005JNBQ/ref=cm_cr_arp_d_viewopt_rvwer?ie=UTF8&reviewerType=avp_only_reviews&sortBy=recent&pageNumber=1"
+
+dynamite_html = read_html(url)
+
+# get the title of the reviews
+review_titles <- 
+  dynamite_html %>%
+  html_nodes(".a-text-bold span") %>%
+  html_text()
+
+# note that we only scrape the reviews in the page...we'll get back to how to get all reviews...
+review_stars <- 
+  dynamite_html %>%
+  html_nodes("#cm_cr-review_list .review-rating") %>%
+  html_text()
+
+# get the contents of reveiw
+review_text <- 
+  dynamite_html %>%
+  html_nodes(".review-text-content span") %>%
+  html_text()
+
+# turn into table
+reviews <- tibble(
+  stars = review_stars,
+  texts = review_text,
+  titles = review_titles
+)
+
+```
+
+## Other ways to get data: API
+
+```{r}
+# first, easy example...we could also just directly download from the website...but you need to "download" as API documents specifically
+nyc_water <- 
+  GET("https://data.cityofnewyork.us/resource/waf7-5gvc.csv") %>% # GET is for interacting with API
+  content("parsed") #%>%    # use "parsed" to extract the actual stuff.
+
+# csv was relatively easy...but what if it's in JSON?
+# here, we see that it's more "granular" as it is a more flexible format for transporting data...
+nyc_water <- 
+  GET("https://data.cityofnewyork.us/resource/waf7-5gvc.json") %>% 
+  content("text") %>%
+  jsonlite::fromJSON() %>%
+  as_tibble()
+
+# Data.gov also has a lot of data available using their API; often this is available as CSV or JSON as well. For example, we might be interested in data coming from BRFSS. This is importable via the API as a CSV (JSON, in this example, is much more complicated).
+
+brfss_smart2010 = 
+  GET("https://data.cdc.gov/api/views/waxm-p5qv/rows.csv?accessType=DOWNLOAD") %>% 
+  content("parsed")
+
+# However, we might also try to obtain data where the data source is constantly updated. In this case, you should do API interaction instead of manual parse. An example is the NYC Restaurant Inspections...
+
+
+```
+
+## Let's try something more complicated
+
+```{r}
+
+poke = 
+  GET("http://pokeapi.co/api/v2/pokemon/1") %>%
+  content()
+
+poke$name
+poke$abilities
+
+```
+
+
+# Data Wrangling 2 - Strings and Factors
+
+we're going to try doing stuff based on websites and dashboard (plotly and dashboards). 
+
+
+```{r}
+
+library(tidyverse)
+library(rvest)
+library(httr)
+
+library(p8105.datasets)
+
+# start with a string vector
+string_vec = c("my", "name", "is", "jeff")
+
+# note, that str_* are typically the start for any stringr package functions
+# in this, the function inputs are almost always start with a "string".
+
+# this is used to "detect" a specific string inside some df/vector. Does "x" exist?
+# this applies to parts of a character as it detects any pattern
+str_detect(string_vec, "jeff")
+str_replace(string_vec, "jeff", "Jeff") # replaces a particular character
+
+```
+
+let's get more complex...
+
+```{r}
+
+string_vec = c(
+  "i think we all rule for participating",
+  "i think i have been caught",
+  "i think this will be quite fun actually",
+  "it will be fun, i think"
+  )
+
+
+str_detect(string_vec, "^i think")    # having "^" indicates "starts with"
+str_detect(string_vec, "i think$")    # $ means "ends with"
+
+
+
+
+string_vec = c(
+  "Y'all remember Pres. HW Bush?",
+  "I saw a green bush",
+  "BBQ and Bushwalking at Molonglo Gorge",
+  "BUSH -- LIVE IN CONCERT!!"
+  )
+
+str_detect(string_vec,"[Bb]ush")  # [] characters inside are "any of these followed by stuff outside[]"
+
+# note that it doesn't count "BUSH" because it has capital -USH; if this is included, need to specify boxes. 
+# what if we want to search for several "options"?
+
+# we can do this by combining several stringr "special" characters
+string_vec = c(
+  '7th inning stretch',
+  '1st half soon to begin. Texas won the toss.',
+  'she is 5 feet 4 inches tall',
+  '3AM - cant sleep :('
+  )
+
+str_detect(string_vec, "^[0-9][a-zA-Z]") 
+
+
+# a "." means "any"
+string_vec = c(
+  'Its 7:11 in the evening',
+  'want to go to 7-11?',
+  'my flight is AA711',
+  'NetBios: scanning ip 203.167.114.66'
+  )
+
+str_detect(string_vec, "7.11")
+
+
+# what about to search by special characters?
+string_vec = c(
+  'The CI is [2, 5]',
+  ':-]',
+  ':-[',
+  'I found the answer on pages [6-7]'
+  )
+
+str_detect(string_vec, "\\[") # use \ but since it's also a special character, you need to escape it by another \
+
+```
+
+Now that we have knowledge of these, let's try using this with real data
+
+```{r}
+
+pulse_data = 
+  haven::read_sas("./data/public_pulse_data.sas7bdat") %>%
+  janitor::clean_names() %>%
+  pivot_longer(
+    bdi_score_bl:bdi_score_12m,
+    names_to = "visit", 
+    names_prefix = "bdi_score_",
+    values_to = "bdi") %>%
+  select(id, visit, everything()) %>%
+  mutate(
+    visit = str_replace(visit, "bl", "00m"),
+    # str_c() basically concatenates the first with the 2nd. by adding c(...), it will add
+    # all the contents in c() with the 2nd variable
+    visit = fct_relevel(visit, str_c(c("00", "01", "06", "12"), "m"))) %>%
+  arrange(id, visit)
+
+
+print(pulse_data, n = 12)
+
+
+# let's try a more real-world like stuff
+nsduh_url = "http://samhda.s3-us-gov-west-1.amazonaws.com/s3fs-public/field-uploads/2k15StateFiles/NSDUHsaeShortTermCHG2015.htm"
+
+table_marj = 
+  read_html(nsduh_url) %>% 
+  html_nodes(css = "table") %>% 
+  .[[1]] %>%
+  html_table() %>%
+  slice(-1) %>%
+  as_tibble()
+
+
+data_marj <- table_marj %>% 
+  select(-contains("P Value")) %>% 
+  pivot_longer(
+    -State,
+    names_to = "age_year",
+    values_to = "percent",
+  ) %>% 
+  separate(
+    age_year, into = c("age", "year"), sep = "\\("
+  ) %>% 
+  mutate(
+    year = str_replace(year, "\\(", ""),
+    percent = str_replace(percent, "[a-c]$", ""),
+    percent = as.numeric(percent)
+  ) %>% 
+  filter(!(State %in% c("Total U.S.", "Northeast", "Midwest", "South", "West")))
+
+
+# so now we can treat this just like any other data
+data_marj %>%
+  filter(age == "12-17") %>% 
+  mutate(State = fct_reorder(State, percent)) %>% 
+  ggplot(aes(x = State, y = percent, color = year)) + 
+    geom_point() + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```
+
+
+## factors...
+
+```{r}
+
+# be carefull with factors where this may turn into trouble...
+vec_sex = factor(c("male", "male", "female", "female"))
+vec_sex
+
+#by reordering those to 
+
+
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728", "USC00519397", "USS0023B17S"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY", 
+                      USC00519397 = "Waikiki_HA",
+                      USS0023B17S = "Waterhole_WA"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+
+```
+
+```{r}
+
+
+weather_df %>%
+  # without releveling, the plot will show based on alphabetical order
+  mutate(name = fct_relevel(name, c("Waikiki_HA", "CentralPark_NY", "Waterhole_WA"))) %>% 
+  ggplot(aes(x = name, y = tmax)) + 
+  geom_violin(aes(fill = name), color = "blue", alpha = .5) + 
+  theme(legend.position = "bottom")
+
+# we could also reoder
+# slightly different because it predicts which is the smallest to greatest.
+weather_df %>%
+  mutate(name = fct_reorder(name, tmax)) %>% 
+  ggplot(aes(x = name, y = tmax)) + 
+  geom_violin(aes(fill = name), color = "blue", alpha = .5) + 
+  theme(legend.position = "bottom")
+
+
+# recall our airbnb data, we could also use this to order stuff in a nice way, easily.
+data("nyc_airbnb")
+
+nyc_airbnb %>%
+  filter(neighbourhood_group == "Manhattan") %>% 
+  mutate(
+    neighbourhood = fct_reorder(neighbourhood, price, na.rm = TRUE)) %>% 
+  ggplot(aes(x = neighbourhood, y = price)) +
+  geom_boxplot() +
+  coord_flip() + 
+  ylim(0, 1000)
+
+```
+
